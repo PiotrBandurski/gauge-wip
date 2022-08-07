@@ -1,14 +1,15 @@
 package com.example.composerotate
 
-import android.util.Log
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.*
@@ -26,6 +27,8 @@ data class FaceConfig(
     val initialAngle: Int = 225,
     val scaleTextDistance: Dp = 24.dp,
     val maxAngleRotation: Int = 270,
+    val scalesColor: Color = Color.Black,
+    val handColor: Color = Color(255, 152, 0, 255),
     val scaleConfig: ScaleConfig = ScaleConfig(
         steppingAngle = 30f,
         markSize = 16.dp,
@@ -36,6 +39,11 @@ data class FaceConfig(
         markSize = 8.dp,
         markWidth = 3f
     ),
+    val infoFieldConfig: InfoFieldConfig = InfoFieldConfig(
+        spacingAngles = 15f
+    ),
+    val redFieldColor: Color = Color.Red,
+    val redFieldSweep: Float = scaleConfig.steppingAngle * 2,
     val markHalfSubscale: Boolean = true
 )
 
@@ -45,12 +53,17 @@ data class ScaleConfig(
     val markWidth: Float,
 )
 
+data class InfoFieldConfig(
+    val spacingAngles: Float
+)
+
 @OptIn(ExperimentalTextApi::class)
 @Composable
 fun Gauge(
     size: Dp = 250.dp,
     config: FaceConfig = FaceConfig(
-        initialAngle = 220, //To be symmetrical it should be 225 but in GC8 this is bit rotated
+        //initialAngle = 220, //To be symmetrical it should be 225 but in GC8 this is bit rotated
+        initialAngle = 225, //To be symmetrical it should be 225 but in GC8 this is bit rotated
         maxAngleRotation = 270
     ),
     measurer: TextMeasurer = rememberTextMeasurer()
@@ -74,13 +87,13 @@ fun Gauge(
         val center = size.toPx() / 2
         val radius = size.toPx() / 2 - 16.dp.toPx()
 
-        drawGaugeHand(
-            center = center,
+        drawGaugeFace(
             radius = radius,
-            angle = angle
+            center = center,
+            measurer = measurer,
+            config = config
         )
     }
-
 
     Canvas(
         modifier = Modifier
@@ -90,28 +103,32 @@ fun Gauge(
         val center = size.toPx() / 2
         val radius = size.toPx() / 2 - 16.dp.toPx()
 
-        drawGaugeFace(
-            radius = radius,
+        drawGaugeHand(
             center = center,
-            measurer = measurer,
+            radius = radius,
+            angle = angle,
             config = config
         )
     }
-
 }
 
 private fun DrawScope.drawGaugeHand(
     center: Float,
     radius: Float,
-    angle: Float
-) {
+    angle: Float,
+    config: FaceConfig
+) = with(config){
     val pointX = (center + radius * sin(angle.toDouble())).toFloat()
     val pointY = (center - radius * cos(angle.toDouble())).toFloat()
     drawLine(
         start = Offset(x = center, y = center),
         end = Offset(x = pointX, y = pointY),
-        color = Color.Red,
+        color = handColor,
         strokeWidth = 5F
+    )
+    drawCircle(
+        brush = SolidColor(Color.Black),
+        radius = 15f,
     )
 }
 
@@ -122,14 +139,11 @@ private fun DrawScope.drawGaugeFace(
     measurer: TextMeasurer,
     config: FaceConfig
 ) = with(config) {
-
-    Log.d("anim", "drawing morda")
     val scaleMarkSize = scaleConfig.markSize.toPx()
     val subscaleMarkSize = subscaleConfig.markSize.toPx()
     drawCircle(
-        brush = SolidColor(Color.LightGray),
+        brush = SolidColor(Color.White),
         radius = radius,
-        style = Stroke(15f)
     )
     val textSize = IntSize(
         //TODO in 1.3.0-alpha 2 this seems to be bugged and not really draws text in center
@@ -144,19 +158,30 @@ private fun DrawScope.drawGaugeFace(
         val startY = (center - radius * cos(angle)).toFloat()
 
         val shouldDrawScaleMark = i % scaleConfig.steppingAngle == 0f
-        if (shouldDrawScaleMark){
+        val shouldDrawRedField = i >= maxAngleRotation - redFieldSweep
+
+        val colorToDraw = if(shouldDrawRedField){
+            redFieldColor
+        } else {
+            scalesColor
+        }
+
+        if (shouldDrawScaleMark) {
             val stopX = (center + (radius - scaleMarkSize) * sin(angle)).toFloat()
             val stopY = (center - (radius - scaleMarkSize) * cos(angle)).toFloat()
 
             val textX = (center + (radius - scaleTextDistance.toPx()) * sin(angle)).toFloat()
             val textY = (center - (radius - scaleTextDistance.toPx()) * cos(angle)).toFloat()
             val text = (i/scaleConfig.steppingAngle).toString()
+
             drawText(
                 measurer,
                 text = text,
                 style = TextStyle(
                     textAlign = TextAlign.Center,
-                    fontSize = 12.sp
+                    fontSize = 12.sp,
+                    //fontStyle = FontStyle.
+                    color = colorToDraw
                 ),
                 topLeft = Offset(
                     x = textX - textSize.width / 2,
@@ -168,7 +193,7 @@ private fun DrawScope.drawGaugeFace(
             drawLine(
                 start = Offset(startX, startY),
                 end = Offset(stopX, stopY),
-                color = Color.Blue,
+                color = colorToDraw,
                 strokeWidth = scaleConfig.markWidth
             )
         } else{
@@ -188,12 +213,69 @@ private fun DrawScope.drawGaugeFace(
             drawLine(
                 start = Offset(startX, startY),
                 end = Offset(stopX, stopY),
-                color = Color.Blue,
+                color = colorToDraw,
                 strokeWidth = strokeWidth
             )
         }
+        if(shouldDrawRedField){
+
+        }
         i += subscaleConfig.steppingAngle
     }
+
+    drawInfoField(config)
+}
+
+private fun DrawScope.drawInfoField(
+    config: FaceConfig
+) = with(config) {
+
+    val bottomSize = Size(
+        width = size.width - 32.dp.toPx(),
+        height = size.height - 32.dp.toPx()
+    )
+
+    drawArc(
+        brush = SolidColor(Color.Black),
+        startAngle = (initialAngle + maxAngleRotation).toFloat() % 360 - 90 + infoFieldConfig.spacingAngles,
+        sweepAngle = (360 - maxAngleRotation).toFloat() - 2 * infoFieldConfig.spacingAngles,
+        useCenter = true,
+        size = bottomSize,
+        topLeft = Offset(
+            (size.width - bottomSize.width)/ 2,
+            (size.height - bottomSize.height) / 2
+        )
+    )
+
+    val topScale = 1.9f
+    val topInfoSize = size.div(topScale)
+
+    drawArc(
+        brush = SolidColor(Color.White),
+        startAngle = (initialAngle + maxAngleRotation).toFloat() % 360 - 90 + infoFieldConfig.spacingAngles - 1,
+        sweepAngle = (360 - maxAngleRotation).toFloat() - 2 * infoFieldConfig.spacingAngles + 2,
+        useCenter = true,
+        size = topInfoSize,
+        topLeft = Offset(
+            (size.width - topInfoSize.width)/ 2,
+            (size.height - topInfoSize.height) / 2
+        )
+    )
+
+    val roundedCornersScale = 1.9f
+    val roundedCornersSize = size.div(roundedCornersScale)
+    drawArc(
+        brush = SolidColor(Color.Black),
+        startAngle = (initialAngle + maxAngleRotation).toFloat() % 360 - 90 + infoFieldConfig.spacingAngles + 2.3f,
+        sweepAngle = (360 - maxAngleRotation).toFloat() - 2 * infoFieldConfig.spacingAngles - 4.6f,
+        useCenter = false,
+        style = Stroke(15f, cap = StrokeCap.Round),
+        size = roundedCornersSize,
+        topLeft = Offset(
+            (size.width - roundedCornersSize.width)/ 2,
+            (size.height - roundedCornersSize.height) / 2
+        )
+    )
 }
 
 @OptIn(ExperimentalTextApi::class)
